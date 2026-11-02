@@ -25,6 +25,7 @@ import pymysql
 from pymysql.cursors import DictCursor
 
 from .config import SeekDBConfig
+from .errors import StorageError
 
 #: Identifier used for the full-text keyword extraction.
 _TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]+")
@@ -73,7 +74,7 @@ SCHEMA_STATEMENTS = (
 )
 
 
-class DatabaseUnavailable(RuntimeError):
+class DatabaseUnavailable(StorageError):
     """Raised when seekdb cannot be reached or a statement fails."""
 
 

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import MiniMaxConfig
+from .errors import ModelCallError
 
 #: MiniMax emits a reasoning block before the answer.
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
@@ -21,7 +22,7 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _DIFF_FENCE_RE = re.compile(r"```[a-zA-Z0-9_+.-]*[ \t]*\r?\n(?P<body>.*?)```", re.DOTALL)
 
 
-class MiniMaxError(RuntimeError):
+class MiniMaxError(ModelCallError):
     """Raised when MiniMax cannot be reached or answers unexpectedly."""
 
 

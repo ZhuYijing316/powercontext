@@ -137,9 +137,10 @@ python -m sddctx import
 | 命令 | 作用 |
 | --- | --- |
 | `python -m validation.check_acceptance` | 自动核验官方六项必做项 |
+| `python -m validation.fault_injection` | **故障注入**：故意弄坏交付物，断言验收项必须变红，再还原 |
 | `python -m validation.reproduce_evidence` | 重建 before/after 证据链（回滚 → 失败 → 应用补丁 → 通过） |
 | `python -m validation.write_artifacts` | 生成代码差异、状态快照、查询记录、模型用量等工件 |
-| `python -m pytest sddctx/tests/test_sddctx.py -q` | 上下文模块自身的单元测试 |
+| `python -m pytest sddctx/tests/ -q` | 上下文模块自身的单元测试（25 个，含错误处理） |
 
 ---
 
@@ -155,8 +156,37 @@ python -m pytest tests/ -q
 
 # 上下文模块自身的单元测试
 cd ../../..
-python -m pytest minimax/sddctx/tests/test_sddctx.py -q
+python -m pytest minimax/sddctx/tests/ -q
 ```
+
+---
+
+## 4.1 错误处理
+
+模块不会用 traceback 打发使用者。每个失败路径都有**稳定错误码**和**可执行的处置建议**：
+
+| 错误码 | 含义 | 典型处置 |
+| --- | --- | --- |
+| `CONFIG_MISSING` | 缺配置项 | 把值填进 `minimax/.env`（git-ignored），模板见 `.env.example` |
+| `TASK_NOT_FOUND` | 任务号不存在 | 用 `ls minimax/tasks/` 看可用任务号 |
+| `DEPENDENCY_UNAVAILABLE` | seekdb / PowerContext / 模型连不上 | 按提示里的命令启动对应依赖 |
+| `STORAGE_FAILED` | seekdb 语句失败 | 看 `detail` 里的数据库错误 |
+| `MODEL_CALL_FAILED` | 模型接口报错 | 看 `detail` 里的 HTTP 状态与响应片段 |
+| `PATCH_APPLY_FAILED` | 生成的补丁套不上 | 看 `detail`；把失败输出回灌给模型让它重出 |
+| `TEST_FAILED` | 验收命令没通过 | 看 `evidence/test-after-*.txt` 的完整输出 |
+| `POWERCONTEXT_ERROR` | PowerContext 拒绝了请求 | 多为幂等键/Source 身份冲突，见 §6 的已知限制 |
+| `INTERNAL_ERROR` | 模块自身的缺陷 | 把 `message` 与 `detail` 反馈给作者 |
+
+文本模式（人看）与 JSON 模式（脚本看）：
+
+```bash
+python -m sddctx context --task NOPE-999            # 文本
+python -m sddctx --json context --task NOPE-999      # {"ok":false,"code":...,"hint":...}
+```
+
+**降级但显式告警**：PowerContext 不可达时，`context` 命令仍然会输出上下文，
+但会打印 `state: unavailable` 并说明「已完成 / 待办 / 已验证」三段为空 ——
+不会静默地少显示一整块，让评审误以为状态从没存过。
 
 ---
 
@@ -171,6 +201,7 @@ python -m sddctx import
 python -m sddctx context --task T-2026-001
 python -m validation.reproduce_evidence     # 重建 before/after 证据
 python -m validation.check_acceptance        # 核验六项必做项
+python -m validation.fault_injection          # 故障注入：证明判分器会报警
 ```
 
 ---

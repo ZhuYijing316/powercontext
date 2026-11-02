@@ -11,6 +11,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .errors import ConfigError
+
 #: ``minimax/sddctx/config.py`` -> ``minimax/sddctx`` -> ``minimax`` -> repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MINIMAX_DIR = REPO_ROOT / "minimax"
@@ -21,10 +23,6 @@ BEFORE_SNAPSHOT_DIR = MINIMAX_DIR / "sample_project" / "before"
 EVIDENCE_DIR = MINIMAX_DIR / "evidence"
 RAW_EVIDENCE_DIR = EVIDENCE_DIR / "raw"
 DEFAULT_ENV_FILE = MINIMAX_DIR / ".env"
-
-
-class ConfigError(RuntimeError):
-    """Raised when the module is not configured well enough to run."""
 
 
 def load_env_file(path: Path | None = None) -> dict[str, str]:
@@ -82,6 +80,25 @@ class PowerContextConfig:
     scope: str
 
 
+def repo_relative(path: Path | str) -> str:
+    """Return ``path`` relative to the repository root.
+
+    Absolute paths must not be stored in the database: the reviewer clones
+    the repository somewhere else, and every stored source path would break.
+    """
+    candidate = Path(path)
+    try:
+        return candidate.resolve().relative_to(REPO_ROOT).as_posix()
+    except (ValueError, OSError):
+        return candidate.as_posix()
+
+
+def repo_absolute(stored: str | Path) -> Path:
+    """Resolve a stored path (relative to the repository root) back to a path."""
+    candidate = Path(stored)
+    return candidate if candidate.is_absolute() else (REPO_ROOT / candidate)
+
+
 @dataclass(frozen=True)
 class Config:
     seekdb: SeekDBConfig
@@ -94,8 +111,11 @@ def _require(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
         raise ConfigError(
-            f"{name} is not configured. Put it in {DEFAULT_ENV_FILE} (git-ignored) "
-            "or export it before running the module."
+            f"缺少配置项 {name}",
+            hint=(
+                f"把它填进 {DEFAULT_ENV_FILE}（该文件已被 git 忽略，不要提交），"
+                f"或者先 export {name}=... 再运行模块；模板见 minimax/.env.example"
+            ),
         )
     return value
 

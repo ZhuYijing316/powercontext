@@ -329,6 +329,62 @@ if "NameError" in before_text:
 
 ---
 
+## 4.7 再加一层：故障注入（证明判分器有牙齿）
+
+全有全无的打分下，**「验收脚本总是 PASS」和「验收脚本真的在判」是两回事**。
+所以再写一个 `validation/fault_injection.py`：逐个**故意弄坏**交付物，
+断言对应的验收项必须变红，再还原并断言它恢复绿色。
+
+```python
+faults = [
+    ("seekdb 里的规格行被删掉",        ["database-involved", "context-correct"]),
+    ("实现被撤回到修改前快照",         ["code-change-effective"]),
+    ("规格文件被改了但没有重新导入",    ["context-correct"]),
+    ("目标测试文件被移走",            ["code-change-effective", "context-correct"]),
+    ("PowerContext 不可达",           ["state-reuse"]),
+    ("模型的原始调用记录被移走",        ["minimax-involved"]),
+]
+for fault in faults:
+    try:
+        fault.inject()
+        for name in fault.expect_fail:
+            assert not check(name).passed, f"{name} 应该变红却还是绿的"
+    finally:
+        fault.restore()          # <- 必须在 finally 里还原
+    for name in fault.expect_fail:
+        assert check(name).passed, "还原后应该恢复绿色"
+```
+
+**每次破坏都必须能在 `finally` 里还原** —— 否则脚本中途失败就留下一个坏交付物。
+
+> ⚠️ **"规格改了但没重新导入"这一类故障，只核对行号抓不到**（编辑文件后行号仍然合法）。
+> 必须**把索引里存的内容与磁盘上那一行逐字比对**才能发现。
+> 本作品因此把 `context-correct` 从"文件存在 + 行号在范围内"升级成"内容逐字匹配"。
+
+> ⚠️ **注入环境变量类的故障时，记得重建配置对象**。
+> `load_config()` 在构造时就快照了 URL，事后再改 `os.environ` 不会生效 ——
+> 本作品第一次跑就漏在这里，是脚本自己写的 bug。
+
+### 4.8 错误处理也要当成交付物
+
+评审是在**你的环境没配好**的状态下打开你的作品的。所以每个失败路径都必须回答两件事：
+
+1. **发生了什么** —— 一个稳定错误码（`DEPENDENCY_UNAVAILABLE` 这种），别用 traceback；
+2. **我该做什么** —— 一句能直接抄进终端的命令。
+
+```text
+[ERROR] TASK_NOT_FOUND
+  发生了什么：找不到任务 'NOPE-999'
+  你该做什么：可用任务：T-2026-001（任务文档在 minimax/tasks/ 目录）
+```
+
+再加一个 `--json` 开关，给脚本用：`{"ok": false, "code", "message", "hint"}`。
+
+**降级要显式**：某个依赖挂了还能出结果时，照样出，但**必须说清楚哪一块是空的**。
+静默少显示一整块，评审会以为"状态从来没存过"。
+
+---
+
 ## 5. 证据怎么留（让评审能自己核对）
 
 | 做法 | 为什么 |
@@ -355,6 +411,7 @@ if "NameError" in before_text:
 | 代码与测试 | `sample_project/before/`（修改前快照）+ `evidence/code-diff.patch` + `evidence/patches/` + `evidence/test-before*.txt` / `test-after*.txt` |
 | 技术使用记录 | `docs/EVIDENCE.md` + `evidence/raw/*.jsonl` |
 | 一页技术说明 | `README.md` —— 模块结构、三样技术分工、上下文选择方式 |
+| 判分器有效性 | `evidence/fault-injection.md` —— 故障注入的反向证明 |
 
 **两个容易漏但很值钱的小节**：
 
@@ -445,3 +502,4 @@ python -m validation.check_acceptance       # 六项必做项全过？
 | 修改后 | 目标测试 6 passed；全量回归 997 passed / 1 skipped（基线 991 passed / 1 skipped） |
 | 状态复用 | 独立进程从 PowerContext 读回并进入上下文 |
 | 验收 | **7/7 PASS**（六项必做项 + 规格更新子项） |
+| 故障注入 | **6/6 全部被抓住且可恢复**（判分器不是橡皮章） |

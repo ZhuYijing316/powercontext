@@ -20,14 +20,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import PowerContextConfig
+from .errors import DependencyUnavailableError, SddctxError
 
 WORK_CONTRACT_SCHEMA = "powercontext.work-contract.v1"
 TASK_OUTCOME_SCHEMA = "powercontext.task-outcome.v1"
 STATE_KIND = "sdd.task.state"
 
 
-class PowerContextError(RuntimeError):
+class PowerContextError(SddctxError):
     """Raised when PowerContext rejects a request or cannot be reached."""
+
+    code = "POWERCONTEXT_ERROR"
 
 
 @dataclass
@@ -75,7 +78,14 @@ class PowerContextClient:
         except Exception as exc:  # noqa: BLE001
             if self.recorder is not None:
                 self.recorder.record("powercontext.error", method=method, path=path, detail=str(exc)[:400])
-            raise PowerContextError(f"cannot reach PowerContext at {url}: {exc}") from exc
+            raise DependencyUnavailableError(
+                f"PowerContext 连不上（{url}）",
+                hint=(
+                    "启动 PowerContext Server："
+                    "powercontext server run --env-file <你的 powercontext.env> --port 8000"
+                ),
+                detail=str(exc)[:400],
+            ) from exc
 
         if self.recorder is not None:
             self.recorder.record(

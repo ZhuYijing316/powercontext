@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .code_index import CodeSymbol, TestCase
+from .config import repo_absolute
 from .documents import Document
 from .seekdb_store import SeekDBStore
 
@@ -86,6 +87,8 @@ class DevelopmentContext:
     retrieval: dict[str, Any] = field(default_factory=dict)
     #: exact current content of the files the task says it will change
     files: dict[str, str] = field(default_factory=dict)
+    #: where the progress section came from
+    state_source: str = "none"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -104,6 +107,7 @@ class DevelopmentContext:
             "code": [entry.to_dict() for entry in self.code],
             "tests": [entry.to_dict() for entry in self.tests],
             "progress": {
+                "source": self.state_source,
                 "finished": self.finished,
                 "todo": self.todo,
                 "verification": self.verification,
@@ -217,7 +221,7 @@ def _spec_entry(row: dict[str, Any]) -> ContextEntry:
         identifier=f"{row['spec_id']}#{row['section_id']}",
         title=row.get("title") or row["section_id"],
         body=row.get("content") or "",
-        source_path=row.get("source_path") or "",
+        source_path=str(repo_absolute(row.get("source_path") or "")),
         source_line=int(row.get("source_line") or 0),
         kind=row.get("kind") or "requirement",
         detail={"spec_id": row["spec_id"], "section_id": row["section_id"]},
@@ -229,7 +233,7 @@ def _code_entry(row: dict[str, Any]) -> ContextEntry:
         identifier=row.get("symbol") or "",
         title=row.get("signature") or row.get("symbol") or "",
         body=row.get("content") or "",
-        source_path=row.get("source_path") or "",
+        source_path=str(repo_absolute(row.get("source_path") or "")),
         source_line=int(row.get("source_line") or 0),
         kind=row.get("kind") or "function",
         detail={"file_path": row.get("file_path") or ""},
@@ -241,7 +245,7 @@ def _test_entry(row: dict[str, Any]) -> ContextEntry:
         identifier=row.get("test_id") or "",
         title=row.get("name") or "",
         body=row.get("content") or "",
-        source_path=row.get("source_path") or "",
+        source_path=str(repo_absolute(row.get("source_path") or "")),
         source_line=int(row.get("source_line") or 0),
         kind="test",
         detail={

@@ -30,7 +30,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sddctx.code_index import index_project  # noqa: E402
-from sddctx.config import EVIDENCE_DIR, REPO_ROOT, load_config  # noqa: E402
+from sddctx.config import EVIDENCE_DIR, REPO_ROOT, load_config, repo_absolute  # noqa: E402
 from sddctx.context import build_context, parse_task  # noqa: E402
 from sddctx.documents import load_documents  # noqa: E402
 from sddctx.evidence import EvidenceRecorder  # noqa: E402
@@ -205,16 +205,29 @@ def check_context(config) -> Check:
     if "tests/test_matches.py" not in test_files:
         problems.append("the target test file is missing from the context")
 
-    # every source must really exist on disk
+    # every source must really exist on disk, and the stored content
+    # must still match the line the row claims - otherwise a spec that
+    # was edited but not re-imported would slip through.
     for entry in context.specs + context.code + context.tests:
-        path = Path(entry.source_path)
+        path = repo_absolute(entry.source_path)
         if not path.is_file():
             problems.append(f"source does not exist: {entry.source}")
             break
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         line = entry.source_line
-        if line <= 0 or line > len(path.read_text(encoding="utf-8", errors="replace").splitlines()):
+        if line <= 0 or line > len(lines):
             problems.append(f"source line out of range: {entry.source}")
             break
+        stored_first_line = (entry.body or "").splitlines()[0].strip() if entry.body else ""
+        if stored_first_line:
+            actual = lines[line - 1].strip()
+            probe = stored_first_line.lstrip("#").strip()
+            if probe and probe not in actual:
+                problems.append(
+                    f"stored content no longer matches the file at {entry.source} "
+                    f"(file says {actual!r}, index says {stored_first_line!r})"
+                )
+                break
 
     return Check(
         name="context-correct",

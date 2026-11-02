@@ -57,6 +57,8 @@ class Section:
     body: str
     source_path: str
     source_line: int
+    #: the heading line exactly as it appears in the file
+    raw_heading: str = ""
 
     @property
     def kind(self) -> str:
@@ -120,6 +122,7 @@ def parse_document(path: Path, doc_id: str | None = None) -> Document:
     current_id: str | None = None
     current_title = ""
     current_line = 0
+    current_heading = ""
     buffer: list[str] = []
 
     def flush() -> None:
@@ -132,6 +135,7 @@ def parse_document(path: Path, doc_id: str | None = None) -> Document:
                 body="\n".join(buffer).strip(),
                 source_path=path.as_posix(),
                 source_line=current_line,
+                raw_heading=current_heading,
             )
         )
 
@@ -142,6 +146,7 @@ def parse_document(path: Path, doc_id: str | None = None) -> Document:
             current_id = match.group("id")
             current_title = (match.groupdict().get("title") or current_id).strip()
             current_line = number
+            current_heading = raw.strip()
             buffer = []
             continue
         if current_id is not None:

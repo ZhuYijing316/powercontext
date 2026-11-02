@@ -55,19 +55,24 @@ minimax/
 │   ├── powercontext_client.py     PowerContext 调用
 │   ├── runner.py                  流水线
 │   ├── evidence.py                证据记录
-│   └── tests/                     模块自身的单元测试
+│   ├── errors.py                  结构化错误（错误码 + 可执行提示）
+│   └── tests/                     模块自身的单元测试（25 个）
 ├── sample_project/
 │   ├── jmespath/                  被修改的业务工程（上游 jmespath.py，MIT）
 │   └── before/                    修改前的代码快照
 ├── validation/
-│   └── check_acceptance.py        六项必做项自动核验
+│   ├── check_acceptance.py        六项必做项自动核验
+│   ├── fault_injection.py         故障注入（证明判分器有牙齿）
+│   ├── reproduce_evidence.py       重建 before/after 证据链
+│   └── write_artifacts.py          生成代码差异等工件
 ├── deploy/
 │   └── powercontext.env.example   PowerContext 服务配置模板
 ├── evidence/                      真实运行证据
 │   ├── raw/                       每次运行的原始 JSONL 记录
 │   ├── patches/                   MiniMax 产出的补丁
 │   ├── test-before.txt            修改前的目标测试输出
-│   └── acceptance.md              六项必做项核验报告
+│   ├── acceptance.md              六项必做项核验报告
+│   └── fault-injection.md         故障注入报告（判分器有效性）
 └── docs/
     ├── RUN.md                     运行说明
     ├── WALKTHROUGH.md             验证样例
@@ -119,6 +124,50 @@ minimax/
 | 需要修改的代码文件或符号 | `jmespath/functions.py :: Functions._func_matches`（含来源行号） |
 | 用于验证功能及兼容性的测试 | `tests/test_matches.py::TestMatches.test_r2_…`（含来源行号） |
 | 已完成事项、待办事项和已有验证结果 | 来自 PowerContext 的任务状态 |
+
+---
+
+## 4.3 错误处理：每个失败都告诉你「怎么办」
+
+模块不会用 traceback 打发使用者。每个失败路径都有一个**稳定错误码**和一句**可执行的处置建议**：
+
+```text
+[ERROR] TASK_NOT_FOUND
+  发生了什么：找不到任务 'NOPE-999'
+  你该做什么：可用任务：T-2026-001（任务文档在 minimax/tasks/ 目录）
+```
+
+```json
+{ "ok": false, "code": "DEPENDENCY_UNAVAILABLE",
+  "message": "PowerContext 连不上（http://127.0.0.1:8000/v1/scopes）",
+  "hint": "启动 PowerContext Server：powercontext server run --env-file <你的 powercontext.env> --port 8000" }
+```
+
+错误码：`CONFIG_MISSING` / `TASK_NOT_FOUND` / `DEPENDENCY_UNAVAILABLE` /
+`STORAGE_FAILED` / `MODEL_CALL_FAILED` / `PATCH_APPLY_FAILED` / `TEST_FAILED` /
+`POWERCONTEXT_ERROR` / `INTERRUPTED` / `INTERNAL_ERROR`。
+
+加 `--json` 即得机器可读输出（`{"ok": false, "code", "message", "hint"}`）。
+部分命令在依赖不可用时**降级但显式告警**（例如 PowerContext 挂了，上下文仍然出得来，
+但会打印 `state: unavailable` 并说明「已完成 / 待办 / 已验证」三段为空 ——
+而不是静默地少显示一整块，让评审误以为状态从没存过）。
+
+## 4.4 故障注入：证明判分器不是橡皮章
+
+一个永远输出 PASS 的验收脚本没有任何价值。`validation/fault_injection.py`
+会**故意弄坏**交付物六次，断言对应的验收项必须变红，再还原并断言它恢复绿色：
+
+| 注入的故障 | 期望变红的验收项 |
+| --- | --- |
+| seekdb 里的规格行被删掉 | `database-involved`、`context-correct` |
+| 实现被撤回到修改前快照 | `code-change-effective` |
+| 规格文件被改了但没有重新导入 | `context-correct` |
+| 目标测试文件被移走 | `code-change-effective`、`context-correct` |
+| PowerContext 不可达，任务状态读不到 | `state-reuse` |
+| MiniMax 的原始调用记录被移走 | `minimax-involved` |
+
+每一次破坏都在 `finally` 里还原，脚本中途失败也不会留下坏状态。
+报告见 [`evidence/fault-injection.md`](evidence/fault-injection.md)。
 
 ---
 

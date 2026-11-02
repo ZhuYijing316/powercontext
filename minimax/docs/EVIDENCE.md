@@ -257,3 +257,29 @@ Task Outcome（每步结果）记录了验收命令与退出码：
 | 代码修改有效 | `code-change-effective` | **PASS** —— 修改前因 `UnknownFunctionError` 失败，修改后目标测试与全量回归全绿 |
 
 **7/7 通过。**
+
+---
+
+## 5. 故障注入 —— 判分器有效性的反向证明
+
+一个永远输出 PASS 的验收脚本证明不了任何事。`validation/fault_injection.py`
+逐个**故意弄坏**交付物，断言对应的验收项必须变红，再还原并断言恢复绿色。
+每一次破坏都在 `finally` 里还原。
+
+| # | 注入的故障 | 期望变红的验收项 | 实际变红 | 还原后 |
+| --- | --- | --- | --- | --- |
+| 1 | seekdb 里的规格行被删掉 | `database-involved`、`context-correct` | 两者都变红 | 都恢复 PASS |
+| 2 | 实现被撤回到修改前快照 | `code-change-effective` | 变红 | 恢复 PASS |
+| 3 | 规格文件被改了但没有重新导入 | `context-correct` | 变红 | 恢复 PASS |
+| 4 | 目标测试文件被移走 | `code-change-effective`、`context-correct` | 两者都变红 | 都恢复 PASS |
+| 5 | PowerContext 不可达，任务状态读不到 | `state-reuse` | 变红 | 恢复 PASS |
+| 6 | MiniMax 的原始调用记录被移走 | `minimax-involved` | 变红 | 恢复 PASS |
+
+**6/6 全部被抓住，6/6 全部可恢复**，全部破坏还原后交付物回到未受损状态，
+`check_acceptance` 仍然 7/7。
+
+第 3 条特别值得说明：它暴露的是「索引与文件不同步」这一类**静默**故障 ——
+只核对行号发现不了（编辑文件后行号仍然合法），必须**把索引里的内容与磁盘上那一行逐字比对**
+才能抓到。这条检查后来加进了 `check_acceptance.py` 的 `context-correct`。
+
+完整报告见 [`../evidence/fault-injection.md`](../evidence/fault-injection.md)。

@@ -27,9 +27,11 @@ from .config import (
     SPECS_DIR,
     TASKS_DIR,
     load_config,
+    repo_relative,
 )
 from .context import DevelopmentContext, Task, build_context, parse_task
 from .documents import load_documents
+from .errors import TaskNotFoundError
 from .evidence import EvidenceRecorder
 from .minmax_client import MiniMaxClient
 from .powercontext_client import PowerContextClient
@@ -52,7 +54,10 @@ def load_task(task_id: str, config: Config) -> Task:
         if document.doc_id == task_id or document.front_matter.get("task_id") == task_id:
             return parse_task(document)
     available = ", ".join(sorted({d.doc_id for d in documents})) or "(none)"
-    raise SystemExit(f"unknown task {task_id!r}; available: {available}")
+    raise TaskNotFoundError(
+        f"找不到任务 {task_id!r}",
+        hint=f"可用任务：{available}（任务文档在 minimax/tasks/ 目录）",
+    )
 
 
 def _repo_relative(path: Path) -> str:
@@ -92,8 +97,8 @@ def import_material(config: Config, recorder: EvidenceRecorder) -> ImportReport:
                     "section_id": section.section_id,
                     "kind": section.kind,
                     "title": section.title,
-                    "content": f"{section.title}\n{section.body}",
-                    "source_path": section.source_path,
+                    "content": f"{section.raw_heading}\n{section.body}",
+                    "source_path": repo_relative(section.source_path),
                     "source_line": section.source_line,
                     "doc_title": document.title,
                 }
@@ -109,7 +114,7 @@ def import_material(config: Config, recorder: EvidenceRecorder) -> ImportReport:
                 "kind": symbol.kind,
                 "signature": symbol.signature,
                 "content": symbol.content,
-                "source_path": symbol.source_path,
+                "source_path": repo_relative(symbol.source_path),
                 "source_line": symbol.source_line,
             }
         )
@@ -121,7 +126,7 @@ def import_material(config: Config, recorder: EvidenceRecorder) -> ImportReport:
                 "name": test.name,
                 "target": test.target,
                 "content": test.content,
-                "source_path": test.source_path,
+                "source_path": repo_relative(test.source_path),
                 "source_line": test.source_line,
             }
         )
@@ -148,12 +153,17 @@ def build_task_context(
 ) -> DevelopmentContext:
     store = SeekDBStore(config.seekdb, recorder=recorder)
     state = None
+    state_source = "none"
     if pc_client is not None:
         scope = pc_client.ensure_scope(task.task_id, f"sdd task {task.task_id}", f"SDD development task {task.task_id}")
         state = pc_client.load_state(scope.scope_id, task.task_id)
+        state_source = "powercontext" if state else "powercontext (no state yet)"
         if state:
             recorder.record("state.loaded", scope_id=scope.scope_id, state=state)
-    context = build_context(task, store, state=state, project_root=config.sample_project)
+    context = build_context(
+        task, store, state=state, project_root=config.sample_project
+    )
+    context.state_source = state_source
     recorder.record(
         "context.built",
         task_id=task.task_id,

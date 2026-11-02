@@ -8,7 +8,7 @@ Result: **7/7 passed**
 | MiniMax 实际参与 | `minimax-involved` | **PASS** | 9 MiniMax call(s) recorded, 4 patch file(s), the implementation is in the delivered file and differs from the pre-change snapshot |
 | 上下文正确 | `context-correct` | **PASS** | 12 specification entries, 49 code symbols, 8 test cases, every source verified on disk |
 | 上下文正确（规格更新后重新导入） | `context-follows-spec-edit` | **PASS** | editing the specification and re-importing changes the retrieved content |
-| 数据库实际参与 | `database-involved` | **PASS** | seekdb holds 12 spec / 335 code / 87 test rows; 9159 recorded queries, 27 of them full-text searches (mode=fulltext) |
+| 数据库实际参与 | `database-involved` | **PASS** | seekdb holds 12 spec / 335 code / 87 test rows; 19647 recorded queries, 39 of them full-text searches (mode=fulltext) |
 | 状态能够复用 | `state-reuse` | **PASS** | the task state was written to PowerContext, read back by a separate process and used to build the context |
 | 代码修改有效 | `code-change-effective` | **PASS** | the target test failed before the change with UnknownFunctionError and passes after it; the full regression suite is green |
 
@@ -26,7 +26,7 @@ Result: **7/7 passed**
 {
   "minimax_calls": 9,
   "patch_requests": 4,
-  "patches_applied": 6,
+  "patches_applied": 7,
   "patch_files": [
     "20261028-222327.patch",
     "20261028-222712.patch",
@@ -174,7 +174,6 @@ Result: **7/7 passed**
     "files_under_change": []
   },
   "specifications": [
-    "SPEC-JP-FN-001#A2",
     "SPEC-JP-FN-001#R1",
     "SPEC-JP-FN-001#R2",
     "SPEC-JP-FN-001#R3",
@@ -183,6 +182,7 @@ Result: **7/7 passed**
     "SPEC-JP-FN-001#R6",
     "SPEC-JP-FN-001#B2",
     "SPEC-JP-FN-001#A1",
+    "SPEC-JP-FN-001#A2",
     "SPEC-JP-FN-001#A3",
     "SPEC-JP-FN-001#B1",
     "SPEC-JP-FN-001#B3"
@@ -231,8 +231,8 @@ Result: **7/7 passed**
     "code": 335,
     "tests": 87
   },
-  "recorded_queries": 9159,
-  "fulltext_queries": 27,
+  "recorded_queries": 19647,
+  "fulltext_queries": 39,
   "sample_query": {
     "at": "2026-10-28T21:57:31",
     "kind": "seekdb.query",
@@ -266,7 +266,7 @@ Result: **7/7 passed**
     "task_id": "T-2026-001",
     "tests_passed": true,
     "todo": [],
-    "updated_at": "2026-10-28T22:39:46",
+    "updated_at": "2026-10-28T23:00:20",
     "verification": [
       "python -m pytest tests/test_matches.py -q -> exit 0 (passed)",
       "python -m pytest tests/ -q -> exit 0 (passed)",
@@ -299,7 +299,7 @@ Result: **7/7 passed**
 {
   "target_test_exit": 0,
   "regression_exit": 0,
-  "regression_tail": "997 passed, 1 skipped, 35 warnings in 0.85s",
-  "before_log": "D:/ZhuYijing/Documents/minimax工作文件夹/powercontext/minimax/evidence/test-before.txt"
+  "regression_tail": "997 passed, 1 skipped, 35 warnings in 0.86s",
+  "before_log": "D:/Tools/wt-fix/minimax/evidence/test-before.txt"
 }
 ```

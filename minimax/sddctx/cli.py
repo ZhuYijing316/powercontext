@@ -23,6 +23,11 @@ if __package__ in (None, ""):  # allow `python minimax/sddctx/cli.py`
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sddctx.config import EVIDENCE_DIR, REPO_ROOT, load_config
+from sddctx.errors import (
+    DependencyUnavailableError,
+    SddctxError,
+    StorageError,
+)
 from sddctx.evidence import EvidenceRecorder
 from sddctx.powercontext_client import PowerContextClient
 from sddctx.runner import (
@@ -40,6 +45,15 @@ from sddctx.runner import (
     write_test_file,
 )
 from sddctx.seekdb_store import DatabaseUnavailable, SeekDBStore
+
+
+def _report_error(exc: SddctxError, as_json: bool) -> None:
+    """Print an error in the shape the operator (or a script) needs."""
+    payload = exc.to_dict()
+    if as_json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(exc.render(), file=sys.stderr)
 
 
 def _print(title: str, payload: Any) -> None:
@@ -81,7 +95,7 @@ def _context_report(context) -> str:
         if entry.detail.get("target"):
             lines.append(f"      verifies: {entry.detail['target']}")
     lines.append("")
-    lines.append("-- progress recorded by earlier runs --")
+    lines.append(f"-- progress recorded by earlier runs (source: {context.state_source}) --")
     for item in context.finished:
         lines.append(f"  done: {item}")
     for item in context.verification:
@@ -106,7 +120,21 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         _print("seekdb", {"status": "ok", **counts})
     except DatabaseUnavailable as exc:
         ok = False
-        _print("seekdb", {"status": "unavailable", "detail": str(exc)})
+        _print(
+            "seekdb",
+            {
+                "ok": False,
+                "status": "unavailable",
+                "code": exc.code,
+                "message": exc.message,
+                "hint": exc.hint
+                or (
+                    "启动 seekdb：docker compose -f deploy/docker-compose.yml "
+                    "--env-file .seekdb.env up -d"
+                ),
+                "detail": exc.detail or str(exc)[:400],
+            },
+        )
 
     client = PowerContextClient(config.powercontext, recorder=recorder)
     try:
@@ -114,9 +142,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         _print("PowerContext", {"status": health.get("status"), "checks": health.get("checks")})
         if health.get("status") != "ready":
             ok = False
+    except DependencyUnavailableError as exc:
+        ok = False
+        _print("PowerContext", {"ok": False, "status": "unavailable", **exc.to_dict()})
     except Exception as exc:  # noqa: BLE001
         ok = False
-        _print("PowerContext", {"status": "unavailable", "detail": str(exc)})
+        _print("PowerContext", {"ok": False, "status": "unavailable", "detail": str(exc)[:400]})
 
     try:
         from sddctx.minmax_client import MiniMaxClient
@@ -125,11 +156,22 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             "Reply with exactly: OK", "ping", max_tokens=16, temperature=0.0
         )
         _print("MiniMax", {"status": "ok", "model": result.model, "reply": result.content[:120]})
+    except DependencyUnavailableError as exc:
+        ok = False
+        _print("MiniMax", {"ok": False, "status": "unavailable", **exc.to_dict()})
     except Exception as exc:  # noqa: BLE001
         ok = False
-        _print("MiniMax", {"status": "unavailable", "detail": str(exc)})
+        _print("MiniMax", {"ok": False, "status": "unavailable", "detail": str(exc)[:400]})
 
-    _print("result", "all three technologies reachable" if ok else "at least one dependency is not ready")
+    _print(
+        "result",
+        {
+            "ok": ok,
+            "message": "all three technologies reachable"
+            if ok
+            else "at least one dependency is not ready",
+        },
+    )
     return 0 if ok else 1
 
 
@@ -137,7 +179,16 @@ def cmd_import(args: argparse.Namespace) -> int:
     config = load_config()
     recorder = EvidenceRecorder("import")
     report = import_material(config, recorder)
-    _print("import", {"specs": report.specs, "code": report.code, "tests": report.tests, "stored": report.counts})
+    _print(
+        "import",
+        {
+            "ok": True,
+            "specs": report.specs,
+            "code": report.code,
+            "tests": report.tests,
+            "stored": report.counts,
+        },
+    )
     return 0
 
 
@@ -145,7 +196,24 @@ def cmd_context(args: argparse.Namespace) -> int:
     config = load_config()
     recorder = EvidenceRecorder(f"context-{args.task}")
     task = load_task(args.task, config)
-    context = build_task_context(config, task, recorder)
+    # The task state comes from PowerContext.  If PowerContext cannot be
+    # reached the context is still useful, so the command degrades
+    # gracefully - but it says so loudly, because a silently missing
+    # state would look like "the state was never stored".
+    try:
+        context = build_task_context(
+            config, task, recorder, pc_client=PowerContextClient(config.powercontext, recorder=recorder)
+        )
+    except DependencyUnavailableError as exc:
+        _print(
+            "warning",
+            {
+                "state": "unavailable",
+                **exc.to_dict(),
+                "consequence": "上下文仍然可用，但『已完成 / 待办 / 已验证』三段为空",
+            },
+        )
+        context = build_task_context(config, task, recorder)
     if args.json:
         _print("context", context.to_dict())
     else:
@@ -237,6 +305,11 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sddctx", description="SDD context module")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="machine readable output; errors become {ok:false, code, message, hint}",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("doctor", help="check seekdb, PowerContext and MiniMax").set_defaults(func=cmd_doctor)
@@ -244,7 +317,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     context_parser = sub.add_parser("context", help="assemble the development context")
     context_parser.add_argument("--task", required=True)
-    context_parser.add_argument("--json", action="store_true")
+    context_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="print the context as JSON",
+    )
     context_parser.add_argument("--out", help="write the context as JSON to this file")
     context_parser.set_defaults(func=cmd_context)
 
@@ -289,10 +367,28 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    as_json = bool(getattr(args, "json", False))
     try:
         return int(args.func(args) or 0)
+    except SddctxError as exc:
+        _report_error(exc, as_json)
+        return 1
+    except KeyboardInterrupt:
+        exc = SddctxError(
+            "操作被中断",
+            hint="状态每一步都会写入 PowerContext，重新执行同一条命令即可继续",
+        )
+        exc.code = "INTERRUPTED"
+        _report_error(exc, as_json)
+        return 130
     except Exception as exc:  # noqa: BLE001
-        print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        wrapped = SddctxError(
+            f"未预期的内部错误：{type(exc).__name__}: {exc}",
+            hint="这是模块的缺陷，请把这条信息和下面的细节反馈给作者",
+            detail=repr(exc)[:600],
+        )
+        wrapped.code = "INTERNAL_ERROR"
+        _report_error(wrapped, as_json)
         return 1
 
 
